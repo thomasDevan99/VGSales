@@ -1,0 +1,337 @@
+---
+title: "VGSales Analysis aand Charts"
+output: html_document
+date: "2025-03-31"
+runtime: shiny
+---
+```{r include = FALSE}
+
+##install.packages("openxlsx")
+##install.packages("rmarkdown")
+##install.packages("shiny")
+
+library(openxlsx)
+library(ISLR)
+library(ggplot2)
+library(tidyverse)
+library(rmarkdown)
+library(shiny)
+
+## Remove any unfinished data (Ones with NA)
+vgsales <- read.csv('vgsales.csv')
+datFrame <- data.frame(vgsales)
+datFrame[datFrame=="N/A"] <- NA
+datFrame <- na.omit(datFrame)
+
+## Set data to desired types
+str(datFrame)
+datFrame$Genre <- as.factor(datFrame$Genre)
+datFrame$Publisher <- as.factor(datFrame$Publisher)
+datFrame$Platform <- as.factor(datFrame$Platform)
+datFrame$Year <- as.numeric(datFrame$Year)
+str(datFrame)
+
+## Looking at interests
+par(mfrow=c(1,1))
+summary(datFrame$Publisher)
+```
+
+```{r echo=FALSE}
+plot(datFrame$Genre, col = "#FF6666")
+
+summary(datFrame$Year)
+summary(datFrame$Platform)
+summary(datFrame$Genre)
+```
+
+## Plot of Genre per Platform count
+
+```{r Genre Per Platform, echo=FALSE}
+ggplot(datFrame) + geom_bar(aes(x=datFrame$Platform, fill=factor(datFrame$Genre)), position = "dodge") + theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate labels
+```
+
+
+## Plot of Overall Consumption of products
+```{r Consumer Data , echo=FALSE}
+ggplot(datFrame) + geom_bar(aes(x=datFrame$Year, fill=factor(datFrame$Genre)), position = "dodge") + theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate labels
+ggplot(datFrame) + geom_bar(aes(x=datFrame$Year)) + theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate labels
+```
+
+## Plot of Platform per Year Count
+```{r Platform Per Year, echo=FALSE}
+
+ggplot(datFrame) + geom_bar(aes(x=datFrame$Year, fill=factor(datFrame$Platform)), position = "dodge") + theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate labels
+```
+
+## Overall Platform count
+```{r Platform Count, echo=FALSE}
+
+
+ggplot(datFrame) + geom_bar(aes(x=datFrame$Platform)) + theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate labels
+```
+
+## Timeline of all platforms
+```{r Timeline, echo=FALSE}
+
+
+ggplot(datFrame, aes(x = datFrame$Platform, y = datFrame$Year)) + geom_tile() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(datFrame, aes(x = Platform, y = Year)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+## Games Produced For Platforms Over Time
+```{r View Platform Data, echo=FALSE}
+
+ui <- fluidPage(
+
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("platform", "Choose a platform:", 
+                  choices = unique(datFrame$Platform), 
+                  selected = unique(datFrame$Platform)[1])
+    ),
+    
+    mainPanel(
+      plotOutput("platformPlot")
+    )
+  )
+)
+
+server <- function(input, output) {
+  # Reactive dataset
+  PlatformTable <- reactive({
+    datFrame %>% filter(Platform == input$platform)
+  })
+  
+  # Render plot dynamically
+  output$platformPlot <- renderPlot({
+  PlatformTable() %>%
+    group_by(Year) %>%
+    summarise(Game_Count = n()) %>%  # Number of games per year
+    ggplot(aes(x = Year, y = Game_Count)) + 
+    geom_bar(stat = "identity", fill = "steelblue") +  # Show actual counts
+    labs(title = paste("Number of Games for", input$platform), x = "Year", y = "Number of Games") +
+    scale_x_continuous(breaks = seq(min(PlatformTable()$Year), max(PlatformTable()$Year), by = 1)) +  # Whole numbers
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +  # Make y-axis readable
+    theme_minimal()
+})
+}
+
+shinyApp(ui, server)
+
+```
+
+## Sales for For Games on Selected Platform (Year Made)
+```{r Platform Sales, echo=FALSE}
+ui <- fluidPage(
+
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("salesPlatform", "Choose a platform:", 
+                  choices = unique(datFrame$Platform), 
+                  selected = unique(datFrame$Platform)[1])
+    ),
+    
+    mainPanel(
+      plotOutput("salesPlot"),
+      DT::dataTableOutput("salesTable")  # Table for sales
+    )
+  )
+)
+
+server <- function(input, output) {
+  # Reactive dataset
+  SalesTable <- reactive({
+    datFrame %>%
+      filter(Platform == input$salesPlatform) %>%
+      group_by(Year) %>%
+      summarise(Total_Sales = sum(Global_Sales, na.rm = TRUE))  # Sum sales per year
+  })
+  
+  # Render sales plot dynamically
+  output$salesPlot <- renderPlot({
+    SalesTable() %>%
+      ggplot(aes(x = Year, y = Total_Sales)) + 
+      geom_bar(stat = "identity", fill = "darkorange") + 
+      labs(title = paste("Total Sales for", input$salesPlatform), x = "Year", y = "Total Sales (millions)") +
+      scale_x_continuous(breaks = seq(min(SalesTable()$Year), max(SalesTable()$Year), by = 1)) +  # Lock x-axis
+      scale_y_continuous(labels = scales::comma) +  # Format 
+      theme_minimal()
+  })
+  
+  # Render sales data table
+  output$salesTable <- DT::renderDataTable({
+    SalesTable() %>%
+      mutate(Total_Sales = round(Total_Sales, 2))  # Round
+  })
+}
+
+shinyApp(ui, server)
+```
+
+## Sales of Genres Over Time (Based on Year Released)
+```{r Sales of Genres Over Time, echo=FALSE}
+
+library(shiny)
+library(ggplot2)
+library(dplyr)
+
+# Ensure Year is number
+datFrame$Year <- as.numeric(datFrame$Year)
+
+global_min <- 0
+global_max <- max(datFrame$Global_Sales, na.rm = TRUE) * 2  # Lock scaling
+
+ui <- fluidPage(
+
+  fluidRow(
+    column(3,  
+      checkboxGroupInput("selectedGenres", 
+                         "Choose Genres to Display:", 
+                         choices = unique(datFrame$Genre), 
+                         selected = unique(datFrame$Genre))  # By default, all genres are selected
+    ),
+    
+    column(9,  
+      plotOutput("genreSalesPlot")  
+    )
+  )
+)
+
+server <- function(input, output) {
+  output$genreSalesPlot <- renderPlot({
+    # Filter dataset for selected genres
+    GenreSales <- datFrame %>%
+      filter(Genre %in% input$selectedGenres) %>%
+      group_by(Year, Genre) %>%
+      summarise(Total_Sales = sum(Global_Sales, na.rm = TRUE), .groups = 'drop')
+
+    # Ensure y-axis doesn't cut off points
+    max_genre_sales <- max(GenreSales$Total_Sales, na.rm = TRUE) * 1.2  # more space for points
+
+    ggplot(GenreSales, aes(x = Year, y = Total_Sales, color = Genre)) +
+      geom_line(size = 1.2) + 
+      geom_point(size = 3) +  
+      labs(title = "Sales Trend for Selected Genres Over Time",
+           x = "Year",
+           y = "Total Sales (millions)") +
+      scale_y_continuous(limits = c(global_min, max(global_max, max_genre_sales)), labels = scales::comma) +  
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1)  
+      )
+  })
+}
+
+shinyApp(ui, server)
+
+```
+
+## Total Sales for Each Genre Across Platforms
+```{r Sales by Genre and Platform, echo=FALSE}
+
+
+ui <- fillPage(
+  
+  fluidRow(
+    column(3, 
+      selectInput("selectedPlatform", "Choose a Platform:", 
+                  choices = unique(datFrame$Platform), 
+                  selected = unique(datFrame$Platform)[1])
+    )
+  ),
+  
+  fluidRow(
+    column(12, plotOutput("genreSalesPlot", height = "400px")) ## Fixed height
+  )
+  
+
+)
+
+server <- function(input, output) {
+  output$genreSalesPlot <- renderPlot({
+    # Filter dataset by the selected platform
+    GenreSales <- datFrame %>%
+      filter(Platform == input$selectedPlatform) %>%
+      group_by(Genre) %>%
+      summarise(Total_Sales = sum(Global_Sales, na.rm = TRUE)) %>%
+      ungroup()
+    
+    # Create bar plot
+    ggplot(GenreSales, aes(x = Genre, y = Total_Sales, fill = Genre)) +
+      geom_bar(stat = "identity") +
+      labs(title = paste("Total Sales by Genre for", input$selectedPlatform),
+           x = "Genre",
+           y = "Total Sales (millions)") +
+      scale_y_continuous(labels = scales::comma) +  # Format 
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust=1), # Rotate labels
+      plot.margin = margin(10, 10, 150, 10)) +  # Increase bottom margin
+      coord_cartesian(clip = "off") +
+      expand_limits(y = max(GenreSales$Total_Sales) * 1.1) # Ensure labels are not cut off
+  }
+)
+}
+
+shinyApp(ui, server)
+
+```
+
+
+
+##Platform genre breakdown
+WIIGenre <- datFrame %>%
+  group_by(Genre) %>%
+  summarise(total = sum(Platform == "Wii", na.rm = T))
+pie(WIIGenre$total, labels = WIIGenre$Genre)
+
+DSGenre <- datFrame %>%
+  group_by(Genre) %>%
+  summarise(total = sum(Platform == "DS", na.rm = T))
+pie(DSGenre$total, labels = DSGenre$Genre)
+
+PS2Genre <- datFrame %>%
+  group_by(Genre) %>%
+  summarise(total = sum(Platform == "PS2", na.rm = T))
+pie(PS2Genre$total, labels = PS2Genre$Genre)
+
+X360Genre <- datFrame %>%
+  group_by(Genre) %>%
+  summarise(total = sum(Platform == "X360", na.rm = T))
+pie(X360Genre$total, labels = X360Genre$Genre)
+
+PCGenre <- datFrame %>%
+  group_by(Genre) %>%
+  summarise(total = sum(Platform == "PC", na.rm = T))
+pie(PCGenre$total, labels = PCGenre$Genre)
+
+
+
+## Linear regressions
+## QQ plots are right sqewed
+
+lm_Genre <- lm(datFrame$Global_Sales ~ datFrame$Genre, data = datFrame)
+summary(lm_Genre)
+plot(datFrame$Genre, datFrame$Global_Sales)
+abline(lm_Genre, col = "blue")
+plot(lm_Genre)
+
+## not plotting observations with leverage one:
+## 13289, 14301
+lm_Platform <- lm(datFrame$Global_Sales ~ datFrame$Platform, data = datFrame)
+summary(lm_Platform)
+plot(datFrame$Platform, datFrame$Global_Sales)
+abline(lm_Platform, col = "blue")
+plot(lm_Platform)
+
+
+lm_Year <- lm(datFrame$Global_Sales ~ datFrame$Year, data = datFrame)
+summary(lm_Year)
+plot(datFrame$Year, datFrame$Global_Sales)
+abline(lm_Year, col = "blue")
+plot(lm_Year)
+
