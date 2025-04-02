@@ -283,47 +283,82 @@ shinyApp(ui, server)
 
 
 
-##Platform genre breakdown
-WIIGenre <- datFrame %>%
-  group_by(Genre) %>%
-  summarise(total = sum(Platform == "Wii", na.rm = T))
-pie(WIIGenre$total, labels = WIIGenre$Genre)
+## Sales Distribution by Genre
 
-DSGenre <- datFrame %>%
-  group_by(Genre) %>%
-  summarise(total = sum(Platform == "DS", na.rm = T))
-pie(DSGenre$total, labels = DSGenre$Genre)
+```{r Sales Distribution by Genre}
 
-PS2Genre <- datFrame %>%
-  group_by(Genre) %>%
-  summarise(total = sum(Platform == "PS2", na.rm = T))
-pie(PS2Genre$total, labels = PS2Genre$Genre)
+ui <- fillPage(
 
-X360Genre <- datFrame %>%
-  group_by(Genre) %>%
-  summarise(total = sum(Platform == "X360", na.rm = T))
-pie(X360Genre$total, labels = X360Genre$Genre)
+    fluidRow(
+    column(3, 
+        selectInput("selected_platform", "Choose a Platform:", 
+          choices = unique(datFrame$Platform), 
+            selected = "Wii")
+    )
+  ),
+  
+  fluidRow(
+    column(12, plotOutput("pieChart")) ## Fixed height
+  )
 
-PCGenre <- datFrame %>%
-  group_by(Genre) %>%
-  summarise(total = sum(Platform == "PC", na.rm = T))
-pie(PCGenre$total, labels = PCGenre$Genre)
+)
 
+server <- function(input, output) {
+    # Reactive dataset
+    filtered_data <- reactive({
+        datFrame %>%
+            filter(Platform == input$selected_platform) %>%
+            group_by(Genre) %>%
+            summarise(total_sales = sum(Global_Sales, na.rm = TRUE))
+    })
+    
+    # Render Pie Chart
+    output$pieChart <- renderPlot({
+        data <- filtered_data()
+        pie(data$total_sales, labels = data$Genre, 
+            main = paste("Sales Distribution for", input$selected_platform))
+    })
+}
+
+shinyApp(ui, server)
+
+```
 
 
 ## Linear regressions
-## QQ plots are right sqewed
 
+### Genre Linear Regression Model
+
+```{r Genre Linear Regression Model}
+
+
+## QQ plots are right sqewed
 lm_Genre <- lm(datFrame$Global_Sales ~ datFrame$Genre, data = datFrame)
 summary(lm_Genre)
+
+```
+Any entry with a p-value of < 0.05 is significant
+
+```{r include = FALSE}
 plot(datFrame$Genre, datFrame$Global_Sales)
 abline(lm_Genre, col = "blue")
 plot(lm_Genre)
+```
 
-## not plotting observations with leverage one:
-## 13289, 14301
+
+### Platform Linear Regression Model
+
+```{r Platform Linear Regression Model}
+
 lm_Platform <- lm(datFrame$Global_Sales ~ datFrame$Platform, data = datFrame)
 summary(lm_Platform)
+
+```
+Any entry with a p-value of < 0.05 is significant
+
+
+```{r include = FALSE}
+
 plot(datFrame$Platform, datFrame$Global_Sales)
 abline(lm_Platform, col = "blue")
 plot(lm_Platform)
@@ -334,4 +369,4 @@ summary(lm_Year)
 plot(datFrame$Year, datFrame$Global_Sales)
 abline(lm_Year, col = "blue")
 plot(lm_Year)
-
+```
